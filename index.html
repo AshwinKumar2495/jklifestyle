@@ -3837,9 +3837,11 @@
       }, 10000);
     }
 
+    let isTransitioning = false;
+
     function smoothScrollCarousel(direction) {
-      stopAutoScroll();
-      resetAutoResumeTimer();
+      if (isTransitioning) return;
+      isTransitioning = true;
 
       const currentTransform = window.getComputedStyle(productsCarousel).transform;
       let currentX = 0;
@@ -3853,17 +3855,50 @@
         }
       }
 
-      // Calculate new position
+      // Freeze track at current position and stop auto-scroll
+      stopAutoScroll();
+      productsCarousel.style.transform = `translateX(${currentX}px)`;
+      productsCarousel.offsetHeight; // force reflow
+      resetAutoResumeTimer();
+
+      const S = 6 * TOTAL_CARD_WIDTH; // width of original set of 6 cards (1824px)
       const moveAmount = TOTAL_CARD_WIDTH * 3; // Move 3 cards at a time
-      const newX = direction === 'next' ? currentX - moveAmount : currentX + moveAmount;
+
+      // Snap currentX to the nearest card boundary
+      let snappedX = Math.round(currentX / TOTAL_CARD_WIDTH) * TOTAL_CARD_WIDTH;
+
+      // Normalize snappedX to be within [-S, 0]
+      while (snappedX > 0) snappedX -= S;
+      while (snappedX < -S) snappedX += S;
+
+      let targetX;
+      if (direction === 'next') {
+        targetX = snappedX - moveAmount;
+      } else {
+        // If moving prev would go past 0 (to the right, showing empty space)
+        if (snappedX + moveAmount > 0) {
+          // Jump instantly to the duplicate set on the right
+          snappedX = snappedX - S;
+          productsCarousel.style.transition = 'none';
+          productsCarousel.style.transform = `translateX(${snappedX}px)`;
+          productsCarousel.offsetHeight; // force reflow
+        }
+        targetX = snappedX + moveAmount;
+      }
 
       // Animate to new position
       productsCarousel.style.transition = `transform ${SCROLL_DURATION}ms cubic-bezier(0.4, 0, 0.2, 1)`;
-      productsCarousel.style.transform = `translateX(${newX}px)`;
+      productsCarousel.style.transform = `translateX(${targetX}px)`;
 
-      // Remove transition after animation completes
+      // Handle wrap-around and unlock transition after animation completes
       setTimeout(() => {
         productsCarousel.style.transition = 'none';
+        if (direction === 'next' && targetX <= -S) {
+          // Jump instantly back to the original set
+          const wrappedX = targetX + S;
+          productsCarousel.style.transform = `translateX(${wrappedX}px)`;
+        }
+        isTransitioning = false;
       }, SCROLL_DURATION);
     }
 
